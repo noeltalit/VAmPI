@@ -27,6 +27,14 @@ def get_all_users():
 
 
 def debug():
+    # the debug listing is for admins only
+    resp = token_validator(request.headers.get('Authorization'))
+    if "error" in resp:
+        return Response(error_message_helper(resp), 401, mimetype="application/json")
+    user = User.query.filter_by(username=resp['sub']).first()
+    if not (user and user.admin):
+        return Response(error_message_helper("Only Admins may view the debug listing!"), 403,
+                        mimetype="application/json")
     return_value = jsonify({'users': User.get_all_users_debug()})
     return return_value
 
@@ -91,8 +99,8 @@ def login_user():
         jsonschema.validate(request_data, login_user_schema)
         username = request_data.get('username')
         client = request.remote_addr
-        # brute force protection: too many recent failures block further attempts, correct password or not
-        wait = login_throttle.retry_after(client, username)
+        # rate limiting: too many recent failures or attempts block further logins, correct password or not
+        wait = login_throttle.acquire(client, username)
         if wait:
             return Response(error_message_helper("Too many failed login attempts. Please try again later."), 429,
                             mimetype="application/json", headers={'Retry-After': str(wait)})
